@@ -1,0 +1,366 @@
+---
+title: "Food Price Forecasting"
+author: "Sanjeev N S"
+date: "2023-12-11"
+output: html_document
+---
+<span style="color: blue;">**Importing datasets**</span>
+```{r}
+dataset <- read.csv("C:\\Users\\sanjeev\\Desktop\\7TH SEM\\FDA\\india.csv")
+
+```
+*The above is the main dataset which has food prices from year 2000-2019
+```{r}
+val <- read.csv("C:\\Users\\sanjeev\\Desktop\\7TH SEM\\FDA\\india_2019.csv")
+
+```
+*The above is the validation dataset which has food prices from year 2019-2020
+<span style="color: blue;">**Loading required packages**</span>
+```{r}
+library(dplyr)
+library(vars)
+library(forecast)
+library(ggplot2)
+library(prophet)
+library(corrplot)
+
+```
+
+<span style="color: blue;">**basic analysis of dataset**</span>
+```{r}
+head(dataset,7)
+tail(dataset,5)
+head(val,6)
+tail(val,6)
+```
+
+```{r}
+summary(dataset)
+str(dataset)
+```
+
+```{r}
+summary(val)
+str(val)
+
+```
+<span style="color: blue;">**Missing Value analysis**</span>
+```{r}
+colSums(is.na(dataset))
+```
+```{r}
+colSums(is.na(val))
+```
+
+<span style="color: blue;">**missing value imputaion with mean**</span>
+```{r}
+dataset <- dataset %>%
+  mutate_if(is.numeric, ~ifelse(is.na(.), mean(., na.rm = TRUE), .))
+
+colSums(is.na(dataset))
+```
+
+```{r}
+val <- val %>%
+  mutate_if(is.numeric, ~ifelse(is.na(.), mean(., na.rm = TRUE), .))
+
+colSums(is.na(val))
+```
+<span style="color: blue;">**visualizations**</span>
+
+```{r}
+hist(dataset$Rice, main = "Rice Price Distribution", xlab = "Rice Price")
+
+```
+```{r}
+ggplot(dataset, aes(y =Chickpeas )) +
+  geom_boxplot(fill = "green") +
+  labs(title = "Box Plot: chickpeas Prices", y = "checkpeas Price")
+
+```
+
+```{r}
+ggplot(dataset, aes(y =Chickpeas )) +
+  geom_boxplot(fill = "red") +
+  labs(title = "Box Plot: Oil..mustard. Prices", y = "Oil..mustard. Price")
+```
+
+```{r}
+ggplot(dataset, aes(y =Potatoes )) +
+  geom_boxplot(fill = "cadetblue1") +
+  labs(title = "Box Plot: Potatoes Prices", y = "Potatoes Price")
+```
+```{r}
+ggplot(dataset, aes(y =Rice )) +
+  geom_boxplot(fill = "gold1") +
+  labs(title = "Box Plot: Rice Prices", y = "Rice Price")
+```
+
+```{r}
+ggplot(dataset, aes(y =Sugar )) +
+  geom_boxplot(fill = "darkseagreen2") +
+  labs(title = "Box Plot: Sugar Prices", y = "sugar Price")
+```
+```{r}
+ggplot(dataset, aes(y =Wheat )) +
+  geom_boxplot(fill = "slategray3") +
+  labs(title = "Box Plot: Wheat Prices", y = "Wheat  Price")
+```
+
+from these visualizations, we can infer that except Oil..mustard price,all other price has outliers in it.next part in EDA is to identify outliers and impute it with mean
+
+*outlier detection
+Function to identify outliers
+```{r}
+identify_outliers <- function(data, columns, threshold = 1.5) {
+  for (col in columns) {
+    q1 <- quantile(data[[col]], 0.25)
+    q3 <- quantile(data[[col]], 0.75)
+    iqr <- q3 - q1
+    lower_bound <- q1 - threshold * iqr
+    upper_bound <- q3 + threshold * iqr
+    
+    # Identify outliers
+    outliers <- data[[col]] < lower_bound | data[[col]] > upper_bound
+    print(outliers)
+  }
+}
+
+identify_outliers(dataset, c("Chickpeas", "Oil..mustard.", "Potatoes", "Rice", "Sugar", "Wheat", "Onions"))
+```
+
+
+```{r}
+identify_outliers(val, c("Chickpeas", "Oil..mustard.", "Potatoes", "Rice", "Sugar", "Wheat", "Onions"))
+```
+
+Function to identify and replace outliers with mean
+```{r}
+identify_and_replace_outliers_with_mean <- function(data, columns, threshold = 1.5) {
+  for (col in columns) {
+    q1 <- quantile(data[[col]], 0.25)
+    q3 <- quantile(data[[col]], 0.75)
+    iqr <- q3 - q1
+    lower_bound <- q1 - threshold * iqr
+    upper_bound <- q3 + threshold * iqr
+    
+   
+    outliers <- data[[col]] < lower_bound | data[[col]] > upper_bound
+    
+   
+    data[[col]][outliers] <- mean(data[[col]], na.rm = TRUE)
+  }
+  return(data)
+}
+
+dataset <- identify_and_replace_outliers_with_mean(dataset, c("Chickpeas", "Oil..mustard.", "Potatoes", "Rice", "Sugar", "Wheat", "Onions"))
+
+
+
+identify_outliers <- function(data, columns, threshold = 1.5) {
+  for (col in columns) {
+    q1 <- quantile(data[[col]], 0.25)
+    q3 <- quantile(data[[col]], 0.75)
+    iqr <- q3 - q1
+    lower_bound <- q1 - threshold * iqr
+    upper_bound <- q3 + threshold * iqr
+    
+    # Identify outliers
+    outliers <- data[[col]] < lower_bound | data[[col]] > upper_bound
+    print(outliers)
+  }
+
+}
+
+identify_outliers(dataset, c("Chickpeas", "Oil..mustard.", "Potatoes", "Rice", "Sugar", "Wheat", "Onions"))
+```
+
+```{r}
+val <- identify_and_replace_outliers_with_mean(val, c("Chickpeas", "Oil..mustard.", "Potatoes", "Rice", "Sugar", "Wheat"))
+
+```
+
+```{r}
+identify_outliers(val, c("Chickpeas", "Oil..mustard.", "Potatoes", "Rice", "Sugar", "Wheat"))
+```
+
+<span style="color: blue;">**data type conversion**</span>
+converting date atribute from "string" datatype to "date" datatype
+```{r}
+dataset$date <- as.Date(dataset$date,format="%Y-%m")
+class(dataset$date)
+```
+```{r}
+val$date <- as.Date(val$date,format="%Y-%m")
+class(val$date)
+```
+<span style="color: blue;">**FORECASTING MODELS**</span>
+```{r}
+cat("\n")
+```
+<span style="color: blue;">**ARIMA MODEL**</span>
+```{r}
+# Create a time series object
+rice_ts <- ts(dataset$Rice, frequency = 12, start = c(2000, 2))
+arima_model <- auto.arima(rice_ts)
+forecast_values <- forecast(arima_model, h = 12)
+print(forecast_values)
+```
+
+
+```{r}
+point_forecasts <- forecast_values$mean
+error_arima <- sum(point_forecasts-val$Rice)/12
+error_arima
+```
+<span style="color: blue;">**Exponential Smoothing (ETS)**</span>
+```{r}
+ets_model <- ets(rice_ts)
+forecast_values_ets <- forecast(ets_model, h = 12)
+print(forecast_values_ets)
+```
+
+```{r}
+point_forecasts <- forecast_values_ets$mean
+error_ETS <- sum(point_forecasts-val$Rice)/12
+error_ETS
+```
+<span style="color: blue;">**SARIMA (Seasonal ARIMA)**</span>
+```{r}
+sarima_model <- arima(dataset$Rice, order = c(1, 1, 1), seasonal = list(order = c(1, 1, 1)), method = "CSS")
+forecast_values_sarima <- forecast(sarima_model, h = 12)
+print(forecast_values_sarima)
+```
+
+```{r}
+point_forecasts <- forecast_values_sarima$mean
+error_SARIMA <- sum(point_forecasts-val$Rice)/12
+error_SARIMA
+```
+<span style="color: blue;">**VECTOR AUTOREGRESSION MODEL[VAR]**</span>
+```{r}
+multivariate_data <- dataset[, c("Rice", "Wheat")]
+
+# Convert the data to time series format
+ts_data <- ts(multivariate_data, frequency = 12, start = c(2000, 2))
+
+# Fit VAR model
+var_model <- VAR(ts_data, p = 2)  # Specify the lag order (p) based on your data
+
+
+forecast_horizon <- 12 
+forecast_values <- predict(var_model, n.ahead = forecast_horizon)[]
+
+```
+
+
+```{r}
+# Print the point forecast values
+print(forecast_values$fcst$Rice[,1])
+```
+```{r}
+error_VAR <- sum(forecast_values$fcst$Rice[,1]-val$Rice)/12
+error_VAR
+```
+
+<span style="color: blue;">**validation**</span>
+<span style="color: blue;">comparision of forecasting models</span>
+```{r}
+cat("ARIMA ERROR: ", error_arima, "\n")
+cat("Exponential Smoothing ERROR: ", error_ETS, "\n")
+cat("SARIMA ERROR: ", error_SARIMA, "\n")
+cat("Vector Autoregression (VAR): ", error_VAR, "\n")
+```
+```{r}
+best_model <- ifelse(error_arima >= error_SARIMA & error_arima >= error_ETS & error_arima >= error_VAR, "ARIMA",
+                   ifelse(error_ETS >= error_arima & error_ETS >= error_SARIMA & error_ETS >= error_VAR, "Exponential Smoothing",
+                   ifelse(error_VAR >= error_SARIMA & error_VAR >= error_ETS, "Vector Autoregression (VAR)", "SARIMA(Seasonal ARIMA)")))
+
+print(best_model)
+
+```
+
+```{r}
+models <- c("ARIMA", "Exponential Smoothing", "SARIMA","Vector Autoregression (VAR)")
+error_values <- c(error_arima,error_ETS,error_SARIMA,error_VAR)
+
+# Create a data frame
+error_data <- data.frame(Model = models, ERROR = error_values)
+
+ggplot(error_data, aes(x = Model, y = ERROR)) +
+  geom_bar(stat = "identity", fill = "yellow2") +
+  labs(title = "ERROR for Different forecasting Models",
+       x = "Model",
+       y = "ERROR") +
+  theme_minimal()
+```
+
+<span style="color: black;/n">we can observe visually that SARIMA model has less error than other models,so SARIMA model is a best model to forecast the prices</span>
+
+
+<span style="color: blue;">**PRIDICTIVE MODEL**</span>
+<span style="color: blue;">**REGRESSION MODEL**</span>
+
+```{r}
+# Select relevant predictors (features) and the target variable (rice price)
+rice_data <- dplyr::select(as.data.frame(dataset), date, Sugar, Potatoes, Wheat, Rice)
+
+# Split the data into training and testing sets
+set.seed(123)  # for reproducibility
+sample_size <- 0.8  # 80% training, 20% testing
+
+# Create a training set
+train_indices <- sample(1:nrow(rice_data), sample_size * nrow(rice_data))
+train_data <- rice_data[train_indices, ]
+test_data <- rice_data[-train_indices, ]
+```
+
+```{r}
+numeric_data <- dplyr::select(dataset, -date)
+correlation_matrix <- cor(numeric_data)
+corrplot(correlation_matrix, method = "color", type = "upper",
+         tl.cex = 0.7, tl.col = "black", tl.srt = 45)
+title("Correlation Plot")
+```
+
+<span style="color: black;/n">from the correlation matrix, for predicting rice , we can use potatoes, sugar and Wheat as independent variable as they are positively correlated</span>
+```{r}
+# Fit a linear regression model
+rice_lm_model <- lm(Rice ~  Potatoes + Wheat + Sugar, data = train_data)
+
+```
+
+```{r}
+# Predict rice prices for the test set
+rice_lm_predictions <- predict(rice_lm_model, newdata = test_data)
+rice_lm_predictions
+```
+
+```{r}
+# Calculate RMSE
+rmse_reg_model <- sqrt(mean((test_data$Rice - rice_lm_predictions)^2))
+
+cat("REGRESSION RMSE: ", rmse_reg_model, "\n")
+```
+
+```{r}
+# Define the RMSE values for  model
+models <-  "Regression"
+rmse_values <- rmse_reg_model
+
+# Create a data frame
+rmse_data <- data.frame(Model = models, RMSE = rmse_values)
+
+# Create a bar plot
+library(ggplot2)
+
+ggplot(rmse_data, aes(x = Model, y = RMSE)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(title = "RMSE of regression model",
+       x = "Model",
+       y = "RMSE") +
+  theme_minimal()
+
+```
+
+<span style="color: black;\n">WE HAVE BUILT REGGRESSION MODEL FOR PREDICTIVE MODLES.THIS MODEL PREDICTS THE FOOD PRICE BASED ON THE OTHER ATRIBUTES PRICES.IN THIS CASE,RICE PRICE IS PREDICTED WITH THE PRICES OF POTATOES,WHEAT AND SUGAR.THESE ATRIBUTES ARE SELECTED BASED ON THE CORRELATION MATRIX OF THE DATASET</span>
